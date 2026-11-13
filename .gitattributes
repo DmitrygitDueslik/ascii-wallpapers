@@ -1,0 +1,3 @@
+# Фан-проект: не учитывать в статистике языков GitHub
+* linguist-detectable=false
+* text=auto eol=lf

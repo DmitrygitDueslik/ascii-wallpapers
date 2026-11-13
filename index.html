@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII-обои</title>
+<meta name="description" content="Генератор ASCII-обоев: картинка, GIF или видео превращаются в символы. Экспорт в PNG, GIF и WebM.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#0b0b0d; --panel:#16161a; --line:#2a2a31; --text:#e8e8ea; --muted:#8b8b95; --accent:#ffffff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, sans-serif; }
+  .app { display:grid; grid-template-columns: 340px 1fr; height:100vh; }
+  aside { background:var(--panel); border-right:1px solid var(--line); padding:16px; overflow:auto; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:12px; margin:0 0 10px; }
+  #info { min-height:1.4em; color:#cfcfd6; }
+  details { border-top:1px solid var(--line); padding:6px 0 10px; }
+  summary { cursor:pointer; font-weight:600; padding:6px 0; user-select:none; }
+  label { display:block; margin:10px 0 4px; color:var(--muted); font-size:12px; }
+  label b { color:var(--text); font-weight:600; float:right; }
+  input[type=range], select, input[type=text] { width:100%; }
+  select, input[type=text] { background:#0f0f12; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  #charset { font-family:monospace; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .row input[type=checkbox] { width:auto; }
+  .colors { display:flex; gap:10px; margin-top:8px; }
+  .colors label { margin:0; flex:1; }
+  input[type=color] { width:100%; height:32px; border:1px solid var(--line); border-radius:6px; background:none; padding:0; }
+  .presets { display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-top:6px; }
+  .presets button { margin:0; padding:7px 4px; font-size:12px; font-weight:500; }
+  button, .file { display:block; width:100%; margin-top:10px; padding:10px; border-radius:8px; border:1px solid var(--line);
+    background:#222228; color:var(--text); font-weight:600; cursor:pointer; text-align:center; font-size:14px; }
+  button:hover, .file:hover { border-color:#4a4a55; }
+  button.main { background:var(--accent); color:#000; border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:default; }
+  .file input { display:none; }
+  main { display:flex; align-items:center; justify-content:center; padding:16px; position:relative; min-width:0; }
+  #drop { position:absolute; inset:16px; border:2px dashed transparent; border-radius:12px; pointer-events:none; }
+  body.dragging #drop { border-color:#fff; background:rgba(255,255,255,.04); }
+  canvas#out { max-width:100%; max-height:calc(100vh - 32px); background:#000; box-shadow:0 0 0 1px var(--line); }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; height:auto; }
+    aside { border-right:0; border-bottom:1px solid var(--line); order:2; }
+    main { order:1; } canvas#out { max-height:70vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>ASCII-обои</h1>
+    <p class="hint">Картинка, GIF или видео → символы. Можно перетащить файл в окно или вставить Ctrl+V.</p>
+    <label class="file">📂 Картинка, GIF или видео<input id="file" type="file" accept="image/*,video/*"></label>
+    <p id="info" class="hint" style="margin:8px 0 6px"></p>
+
+    <details open>
+      <summary>Готовые стили</summary>
+      <div class="presets">
+        <button data-preset="classic">Классика</button>
+        <button data-preset="matrix">Матрица</button>
+        <button data-preset="neon">Неон</button>
+        <button data-preset="retro">Терминал</button>
+        <button data-preset="sunset">Закат</button>
+        <button data-preset="ice">Лёд</button>
+        <button data-preset="rainbow">Радуга</button>
+        <button data-preset="blood">Кровь</button>
+        <button data-preset="original">Цвета фото</button>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Кадр</summary>
+      <label>Формат</label>
+      <select id="format">
+        <option value="phone">Обои на телефон 1080×1920</option>
+        <option value="pc">Обои на ПК 1920×1080</option>
+        <option value="square">Квадрат 1080×1080</option>
+        <option value="orig">Как у исходника</option>
+      </select>
+      <label>Масштаб <b id="zoomV"></b></label>
+      <input id="zoom" type="range" min="30" max="250" value="85">
+      <label>Сдвиг по вертикали <b id="offYV"></b></label>
+      <input id="offY" type="range" min="-50" max="50" value="5">
+    </details>
+
+    <details open>
+      <summary>Фон исходника</summary>
+      <label>Убирать фон</label>
+      <select id="bgMode">
+        <option value="none">Не убирать</option>
+        <option value="color">По цвету фона (быстро, без интернета)</option>
+        <option value="ai">Нейросетью (точно, нужен интернет)</option>
+      </select>
+      <div id="bgTolBox">
+        <label>Допуск цвета фона <b id="bgTolV"></b></label>
+        <input id="bgTol" type="range" min="2" max="80" value="20">
+      </div>
+      <p class="hint" style="margin-top:6px">«По цвету» — для однотонного фона. «Нейросеть» при первом запуске скачивает модель (~40 МБ), на видео работает долго.</p>
+    </details>
+
+    <details open>
+      <summary>Символы</summary>
+      <label>Символов в строке <b id="colsV"></b></label>
+      <input id="cols" type="range" min="30" max="220" value="110">
+      <label>Набор символов</label>
+      <select id="charsetSel">
+        <option value=" .:-=+*#%@">Классика  .:-=+*#%@</option>
+        <option value=" .·:•oO0@">Точки  .·:•oO0@</option>
+        <option value=" .'`^,:;Il!i><~+_-?][}{1)(|tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$">Подробный (70 символов)</option>
+        <option value=" ░▒▓█">Блоки  ░▒▓█</option>
+        <option value=" 01">Матрица  01</option>
+        <option value=" ｰｦｱｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈ">Катакана</option>
+        <option value=" ·✦✧★">Звёзды  ·✦✧★</option>
+        <option value="custom">Свой…</option>
+      </select>
+      <input id="charset" type="text" value=" .:-=+*#%@" style="margin-top:6px">
+      <label>Шрифт</label>
+      <select id="font">
+        <option value="courier">Courier New</option>
+        <option value="consolas">Consolas</option>
+        <option value="jetbrains">JetBrains Mono</option>
+        <option value="fira">Fira Code</option>
+        <option value="vt323">VT323 (ретро-терминал)</option>
+        <option value="pressstart">Press Start 2P (пиксельный)</option>
+      </select>
+      <div class="row"><input id="bold" type="checkbox"><span>Жирный</span></div>
+      <label>Яркость <b id="brightV"></b></label>
+      <input id="bright" type="range" min="-100" max="100" value="0">
+      <label>Контраст <b id="contrastV"></b></label>
+      <input id="contrast" type="range" min="-100" max="150" value="30">
+      <label>Порог (тёмное → пусто) <b id="cutV"></b></label>
+      <input id="cut" type="range" min="0" max="80" value="12">
+      <div class="row"><input id="invert" type="checkbox"><span>Инвертировать (для светлого фона)</span></div>
+    </details>
+
+    <details open>
+      <summary>Цвета</summary>
+      <label>Цвет символов</label>
+      <select id="colorMode">
+        <option value="solid">Один цвет</option>
+        <option value="gradient">Градиент сверху вниз</option>
+        <option value="image">Цвета из исходника</option>
+        <option value="rainbow">Радуга (переливается)</option>
+      </select>
+      <div class="colors">
+        <label>Цвет 1<input id="c1" type="color" value="#ffffff"></label>
+        <label>Цвет 2<input id="c2" type="color" value="#4cc9ff"></label>
+        <label>Фон<input id="bgColor" type="color" value="#000000"></label>
+      </div>
+      <label>Свечение <b id="glowV"></b></label>
+      <input id="glow" type="range" min="0" max="100" value="45">
+    </details>
+
+    <details open>
+      <summary>Анимация</summary>
+      <label>Эффект</label>
+      <select id="effect">
+        <option value="none">Без эффекта</option>
+        <option value="flicker">Мерцание</option>
+        <option value="matrix">Цифровой дождь</option>
+        <option value="type">Печать (появление построчно)</option>
+        <option value="noise">Сборка из шума</option>
+        <option value="glitch">Глитч</option>
+        <option value="pulse">Пульсация</option>
+      </select>
+      <label>Длина цикла, сек <b id="loopSecV"></b></label>
+      <input id="loopSec" type="range" min="2" max="10" step="0.5" value="4">
+      <p class="hint" style="margin-top:6px">У GIF и видео цикл равен длине исходника.</p>
+      <label>Кадров в секунду из видео</label>
+      <select id="fps">
+        <option value="10">10</option>
+        <option value="15" selected>15</option>
+        <option value="24">24</option>
+      </select>
+      <label>Сколько секунд брать из видео <b id="maxSecV"></b></label>
+      <input id="maxSec" type="range" min="1" max="20" value="8">
+    </details>
+
+    <details>
+      <summary>Подпись</summary>
+      <label>Текст</label>
+      <input id="caption" type="text" placeholder="например, имя или цитата">
+      <label>Где</label>
+      <select id="capPos">
+        <option value="bottom">Снизу</option>
+        <option value="top">Сверху</option>
+        <option value="center">По центру</option>
+      </select>
+      <label>Размер <b id="capSizeV"></b></label>
+      <input id="capSize" type="range" min="2" max="12" step="0.5" value="4.5">
+    </details>
+
+    <details open>
+      <summary>Сохранить</summary>
+      <button id="savePng" class="main" disabled>💾 Скачать PNG</button>
+      <button id="saveVid" disabled>🎬 Записать видео (WebM)</button>
+      <label>Размер GIF</label>
+      <select id="gifScale">
+        <option value="0.5">Половина — лёгкий файл</option>
+        <option value="0.75">75%</option>
+        <option value="1">Полный размер — тяжёлый файл</option>
+      </select>
+      <label>Кадров в GIF (у GIF/видео — как в исходнике) <b id="gifFramesV"></b></label>
+      <input id="gifFrames" type="range" min="12" max="60" value="30">
+      <button id="saveGif" disabled>🎞 Скачать GIF</button>
+    </details>
+  </aside>
+  <main>
+    <div id="drop"></div>
+    <canvas id="out" width="1080" height="1920"></canvas>
+  </main>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const out = $('out'), ctx = out.getContext('2d');
+const layer = document.createElement('canvas'), lctx = layer.getContext('2d');   // слой с символами (для свечения)
+const work = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently: true });
+const small = document.createElement('canvas'), sctx = small.getContext('2d', { willReadFrequently: true });
+const TAU = Math.PI * 2;
+const FONTS = {
+  courier: '"Courier New", Courier, monospace', consolas: 'Consolas, "Lucida Console", monospace',
+  jetbrains: '"JetBrains Mono", monospace', fira: '"Fira Code", monospace',
+  vt323: '"VT323", monospace', pressstart: '"Press Start 2P", monospace',
+};
+const EMPTY = { v: 0, r: 0, g: 0, b: 0, o: -1 };
+
+let rawFrames = [];    // кадры исходника: [{ img, dur }]
+let procFrames = [];   // те же кадры после удаления фона
+let srcSize = { w: 1, h: 1 }, srcKind = 'image', lastFile = null, baseInfo = '';
+let grid = null, animId = 0, loadGen = 0, prepGen = 0;
+
+// ---------- настройки ----------
+function settings() {
+  return {
+    format: $('format').value, zoom: +$('zoom').value / 100, offY: +$('offY').value / 100,
+    bgMode: $('bgMode').value, bgTol: +$('bgTol').value,
+    cols: +$('cols').value, chars: $('charset').value || ' .', fontCss: FONTS[$('font').value], bold: $('bold').checked,
+    bright: +$('bright').value, contrast: +$('contrast').value, cut: +$('cut').value / 100, invert: $('invert').checked,
+    colorMode: $('colorMode').value, c1: $('c1').value, c2: $('c2').value, bgColor: $('bgColor').value,
+    glow: +$('glow').value / 100,
+    effect: $('effect').value, loopMs: +$('loopSec').value * 1000,
+    caption: $('caption').value.trim(), capPos: $('capPos').value, capSize: +$('capSize').value / 100,
+  };
+}
+const setInfo = t => { $('info').textContent = t; };
+const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const hash = (a, b, c) => { const v = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453; return v - Math.floor(v); };
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+function canvasSize(s) {
+  if (s.format === 'phone') return [1080, 1920];
+  if (s.format === 'pc') return [1920, 1080];
+  if (s.format === 'square') return [1080, 1080];
+  const k = Math.min(1, 2000 / Math.max(srcSize.w, srcSize.h));
+  return [Math.max(200, Math.round(srcSize.w * k)), Math.max(200, Math.round(srcSize.h * k))];
+}
+
+// ширина символа относительно высоты — у каждого шрифта своя
+function charAspect(s) {
+  lctx.font = `${s.bold ? 'bold ' : ''}100px ${s.fontCss}`;
+  return Math.min(1.1, Math.max(0.4, lctx.measureText('M').width / 100));
+}
+
+// ---------- кадр → сетка символов ----------
+// 1) кладём кадр на холст  2) уменьшаем до сетки cols×rows  3) яркость клетки → символ
+function cellsFor(image, s, W, H, rows) {
+  wctx.clearRect(0, 0, W, H);
+  const fit = Math.min(W / image.width, H / image.height) * s.zoom;
+  const dw = image.width * fit, dh = image.height * fit;
+  wctx.drawImage(image, (W - dw) / 2, (H - dh) / 2 + s.offY * H, dw, dh);
+  sctx.clearRect(0, 0, s.cols, rows);
+  sctx.drawImage(work, 0, 0, s.cols, rows);
+  const px = sctx.getImageData(0, 0, s.cols, rows).data;
+
+  const c = (s.contrast + 100) / 100;
+  const cells = new Array(s.cols * rows);
+  let count = 0;
+  for (let i = 0; i < cells.length; i++) {
+    const r = px[i*4], g = px[i*4+1], b = px[i*4+2], a = px[i*4+3] / 255;
+    if (a < 0.35) { cells[i] = EMPTY; continue; }            // прозрачное (убранный фон) → пусто
+    let v = (0.299*r + 0.587*g + 0.114*b) / 255;
+    if (s.invert) v = 1 - v;
+    v = clamp01((v - 0.5) * c + 0.5 + s.bright / 200) * Math.min(1, a * 1.3);
+    if (v < s.cut) { cells[i] = EMPTY; continue; }
+    cells[i] = { v, r, g, b, o: count++ };                    // o — порядковый номер (для эффекта «печать»)
+  }
+  return { cells, count };
+}
+
+function build() {
+  if (!procFrames.length) return;
+  const s = settings();
+  const [W, H] = canvasSize(s);
+  out.width = work.width = layer.width = W; out.height = work.height = layer.height = H;
+  const cellW = W / s.cols, cellH = cellW / charAspect(s);
+  const rows = Math.max(1, Math.floor(H / cellH));
+  small.width = s.cols; small.height = rows;
+  sctx.imageSmoothingQuality = 'high';
+
+  let start = 0;
+  const frames = procFrames.map(f => {
+    const r = cellsFor(f.img, s, W, H, rows);
+    const fr = { cells: r.cells, count: r.count, dur: f.dur, start };
+    start += f.dur; return fr;
+  });
+  grid = { s, W, H, cols: s.cols, rows, cellW, cellH, frames, total: start };
+  for (const id of ['savePng', 'saveVid', 'saveGif']) $(id).disabled = false;
+  restart();
+}
+
+const isAnimated = () => grid && grid.frames.length > 1;
+const isMoving = () => isAnimated() || grid.s.effect !== 'none';
+function restart() { cancelAnimationFrame(animId); isMoving() ? loop() : draw(0); }
+function loop(t = 0) { draw(t); animId = requestAnimationFrame(loop); }
+function cycleLen() { return isAnimated() ? grid.total : grid.s.loopMs; }
+
+function frameAt(t) {
+  if (!isAnimated()) return grid.frames[0];
+  const tm = ((t % grid.total) + grid.total) % grid.total;
+  for (const f of grid.frames) if (tm < f.start + f.dur) return f;
+  return grid.frames[grid.frames.length - 1];
+}
+
+// ---------- отрисовка одного кадра ----------
+// Все эффекты зависят от фазы цикла ph ∈ [0,1), поэтому GIF и видео зацикливаются без скачка.
+function draw(t) {
+  const { s, W, H, cols, rows, cellW, cellH } = grid;
+  const fr = frameAt(t), cells = fr.cells;
+  const L = cycleLen(), ph = (((t % L) + L) % L) / L;
+  const chars = s.chars, n = chars.length - 1;
+  const noise = chars.replace(/ /g, '') || '#';
+  const eff = s.effect, seg = Math.floor(ph * 30);
+  const c1 = hex(s.c1), c2 = hex(s.c2);
+
+  lctx.clearRect(0, 0, W, H);
+  lctx.font = `${s.bold ? 'bold ' : ''}${cellH * 0.95}px ${s.fontCss}`;
+  lctx.textBaseline = 'top'; lctx.textAlign = 'center';
+  if (s.colorMode === 'solid') lctx.fillStyle = s.c1;
+
+  // параметры эффектов на этот кадр
+  let shifts = null, typeCut = Infinity, fade = 1, asm = 1;
+  if (eff === 'glitch') {
+    const g = Math.floor(ph * 24);
+    if (hash(g, 7, 0) < 0.45) {
+      shifts = new Int16Array(rows);
+      const bands = 1 + Math.floor(hash(g, 8, 0) * 3);
+      for (let b = 0; b < bands; b++) {
+        const y0 = Math.floor(hash(g, b, 1) * rows), h = 1 + Math.floor(hash(g, b, 2) * rows * 0.1);
+        const sh = Math.round((hash(g, b, 3) - 0.5) * cols * 0.25) || 2;
+        for (let y = y0; y < Math.min(rows, y0 + h); y++) shifts[y] = sh;
+      }
+    }
+  } else if (eff === 'type') {
+    if (ph < 0.6) typeCut = ph / 0.6 * fr.count; else if (ph > 0.85) fade = 1 - (ph - 0.85) / 0.15;
+  } else if (eff === 'noise') {
+    asm = ph < 0.45 ? ph / 0.45 : ph < 0.75 ? 1 : 1 - (ph - 0.75) / 0.25;
+  }
+  const cursor = Math.floor(typeCut);
+  const cx = cols / 2, cy = rows / 2, maxd = Math.hypot(cx, cy * cellH / cellW);
+
+  for (let y = 0; y < rows; y++) {
+    const sh = shifts ? shifts[y] : 0;
+    if (s.colorMode === 'gradient') {
+      const k = y / (rows - 1 || 1);
+      lctx.fillStyle = `rgb(${c1[0] + (c2[0] - c1[0]) * k | 0},${c1[1] + (c2[1] - c1[1]) * k | 0},${c1[2] + (c2[2] - c1[2]) * k | 0})`;
+    }
+    for (let x = 0; x < cols; x++) {
+      const xs = x - sh;
+      const cell = xs >= 0 && xs < cols ? cells[y * cols + xs] : EMPTY;
+      let v = cell.v, ch = null;
+
+      if (eff === 'flicker') {
+        if (v > 0) v = Math.max(0.03, clamp01(v + Math.sin(y * 0.15 - TAU * ph) * 0.08
+          + Math.sin(hash(x, y, 0) * TAU + TAU * ph * 2 * (1 + (x * y) % 3)) * 0.07));
+      } else if (eff === 'pulse') {
+        if (v > 0) {
+          const d = Math.hypot(x - cx, (y - cy) * cellH / cellW) / maxd;
+          v = Math.max(0.03, clamp01(v * (0.8 + 0.2 * Math.sin(TAU * ph)) + 0.2 * Math.sin(d * 14 - TAU * ph * 2)));
+        }
+      } else if (eff === 'matrix') {
+        const k = 1 + Math.floor(hash(x, 1, 1) * 3), trail = rows * 0.35;
+        const head = ((ph * k + hash(x, 2, 2)) % 1) * (rows + trail);
+        const dist = head - y, inten = dist >= 0 && dist < trail ? 1 - dist / trail : 0;
+        if (v > 0) {
+          v = v * (0.7 + 0.3 * inten);
+          if (inten > 0.92) ch = noise[Math.floor(hash(x, y, seg) * noise.length)];
+        } else if (inten > 0) {
+          ch = noise[Math.floor(hash(x, y, seg) * noise.length)];
+          v = inten * 0.45;
+        }
+      } else if (eff === 'type') {
+        if (v > 0 && cell.o >= typeCut) { if (cell.o === cursor) { ch = '█'; v = 1; } else v = 0; }
+      } else if (eff === 'noise') {
+        if (hash(x, y, 5) >= asm) {
+          if (v > 0 || hash(x, y, 9) < 0.08) { ch = noise[Math.floor(hash(x, y, seg) * noise.length)]; v = 0.12 + 0.3 * hash(y, x, seg); }
+          else v = 0;
+        }
+      } else if (eff === 'glitch') {
+        if (sh && v > 0 && hash(x, y, seg) < 0.3) ch = noise[Math.floor(hash(y, x, seg) * noise.length)];
+      }
+
+      if (v <= 0) continue;
+      if (!ch) { ch = chars[Math.round(v * n)]; if (ch === ' ') continue; }
+      lctx.globalAlpha = (0.35 + 0.65 * v) * fade;
+      if (s.colorMode === 'image') lctx.fillStyle = cell === EMPTY ? s.c1 : `rgb(${cell.r},${cell.g},${cell.b})`;
+      else if (s.colorMode === 'rainbow') lctx.fillStyle = `hsl(${(x / cols * 160 + y / rows * 120 + ph * 360) % 360},95%,65%)`;
+      lctx.fillText(ch, x * cellW + cellW / 2, y * cellH);
+    }
+  }
+
+  if (s.caption) {
+    lctx.globalAlpha = fade;
+    lctx.fillStyle = s.colorMode === 'gradient' ? s.c2 : s.c1;
+    lctx.font = `bold ${W * s.capSize}px ${s.fontCss}`;
+    lctx.textBaseline = 'middle';
+    const y = s.capPos === 'top' ? H * 0.09 : s.capPos === 'center' ? H * 0.5 : H * 0.91;
+    lctx.fillText(s.caption, W / 2, y, W * 0.92);
+  }
+  lctx.globalAlpha = 1;
+
+  // склейка: фон → размытый слой (свечение) → чёткие символы
+  ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = s.bgColor; ctx.fillRect(0, 0, W, H);
+  if (s.glow > 0) {
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = `blur(${cellH * (0.4 + s.glow)}px)`;
+    ctx.globalAlpha = Math.min(1, s.glow * 1.4);
+    ctx.drawImage(layer, 0, 0);
+    if (s.glow > 0.6) ctx.drawImage(layer, 0, 0);
+    ctx.filter = 'none'; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.drawImage(layer, 0, 0);
+}
+
+// ---------- удаление фона ----------
+// «По цвету»: заливка от краёв кадра — убирается только фон, касающийся краёв,
+// поэтому белые глаза у персонажа на белом фоне останутся.
+function chromaKey(img, tol) {
+  const w = img.width, h = img.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const id = g.getImageData(0, 0, w, h), d = id.data;
+  const border = [];
+  for (let x = 0; x < w; x += 3) border.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y += 3) border.push(y * w, y * w + w - 1);
+  const med = ch => { const a = border.map(p => d[p * 4 + ch]).sort((p, q) => p - q); return a[a.length >> 1]; };
+  const br = med(0), bg = med(1), bb = med(2);
+  const thr = (tol * 2.6) ** 2;
+  const near = p => { const dr = d[p*4] - br, dg = d[p*4+1] - bg, db = d[p*4+2] - bb; return d[p*4+3] < 20 || dr*dr + dg*dg + db*db < thr; };
+  const seen = new Uint8Array(w * h), queue = new Int32Array(w * h);
+  let qh = 0, qt = 0;
+  const push = p => { if (!seen[p] && near(p)) { seen[p] = 1; queue[qt++] = p; } };
+  for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+  while (qh < qt) {
+    const p = queue[qh++], x = p % w;
+    if (x > 0) push(p - 1); if (x < w - 1) push(p + 1);
+    if (p >= w) push(p - w); if (p < w * (h - 1)) push(p + w);
+  }
+  for (let p = 0; p < w * h; p++) if (seen[p]) d[p * 4 + 3] = 0;
+  g.putImageData(id, 0, 0);
+  return c;
+}
+
+// «Нейросеть»: библиотека @imgly/background-removal (лицензия AGPL-3.0), грузится с CDN при первом использовании
+let bgLib = null;
+async function aiCut(frame, onProgress) {
+  if (frame.ai) return frame.ai;
+  if (!bgLib) bgLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm');
+  const c = document.createElement('canvas'); c.width = frame.img.width; c.height = frame.img.height;
+  c.getContext('2d').drawImage(frame.img, 0, 0);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const res = await bgLib.removeBackground(blob, { progress: onProgress, output: { format: 'image/png' } });
+  const bmp = await createImageBitmap(res);
+  const o = document.createElement('canvas'); o.width = bmp.width; o.height = bmp.height;
+  o.getContext('2d').drawImage(bmp, 0, 0);
+  frame.ai = o;
+  return o;
+}
+
+async function prepare() {
+  const gen = ++prepGen, s = settings();
+  $('bgTolBox').style.display = s.bgMode === 'color' ? '' : 'none';
+  if (!rawFrames.length) return;
+  if (s.bgMode === 'none') procFrames = rawFrames;
+  else if (s.bgMode === 'color') procFrames = rawFrames.map(f => ({ img: chromaKey(f.img, s.bgTol), dur: f.dur }));
+  else {
+    const res = [];
+    try {
+      for (let i = 0; i < rawFrames.length; i++) {
+        if (gen !== prepGen) return;
+        const f = rawFrames[i];
+        if (!f.ai) setInfo(`Нейросеть убирает фон: кадр ${i + 1} из ${rawFrames.length}…`);
+        res.push({ img: await aiCut(f, (key, cur, tot) => {
+          if (key.includes('fetch') && tot) setInfo(`Скачиваю нейросеть: ${Math.round(cur / tot * 100)}%`);
+        }), dur: f.dur });
+      }
+    } catch (e) {
+      console.error(e);
+      if (gen !== prepGen) return;
+      setInfo('Не получилось запустить нейросеть (нужен интернет). Фон не убран.');
+      $('bgMode').value = 'none'; procFrames = rawFrames; build();
+      return;
+    }
+    procFrames = res;
+  }
+  if (gen !== prepGen) return;
+  setInfo(baseInfo);
+  build();
+}
+
+// ---------- загрузка исходников ----------
+function setSource(frames, w, h, kind) {
+  rawFrames = frames; srcSize = { w, h }; srcKind = kind;
+  const total = frames.reduce((a, f) => a + f.dur, 0);
+  baseInfo = frames.length > 1
+    ? `${kind === 'video' ? 'Видео' : 'Анимация'}: ${frames.length} кадров, ${(total / 1000).toFixed(1)} сек`
+    : `Картинка ${w}×${h}`;
+  setInfo(baseInfo);
+  prepare();
+}
+
+// уменьшаем большие кадры: для 220 символов в строке больше 720 пикселей не нужно
+function snapshot(src, w, h, max = 720) {
+  const k = Math.min(1, max / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+
+// Видео: перематываем по кадрам и снимаем каждый
+async function decodeVideo(f, gen) {
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.src = URL.createObjectURL(f);
+  await new Promise((ok, fail) => { v.onloadeddata = ok; v.onerror = () => fail(new Error('Браузер не может открыть это видео')); });
+  const fps = +$('fps').value, len = Math.min(v.duration || 0, +$('maxSec').value);
+  const count = Math.max(1, Math.floor(len * fps));
+  const frames = [];
+  for (let i = 0; i < count; i++) {
+    if (gen !== loadGen) return null;
+    setInfo(`Читаю видео: кадр ${i + 1} из ${count}…`);
+    await new Promise(ok => { const t = setTimeout(ok, 3000); v.onseeked = () => { clearTimeout(t); ok(); }; v.currentTime = Math.min(v.duration - 0.001, i / fps + 0.001); });
+    frames.push({ img: snapshot(v, v.videoWidth, v.videoHeight), dur: 1000 / fps });
+  }
+  URL.revokeObjectURL(v.src);
+  return { frames, w: v.videoWidth, h: v.videoHeight };
+}
+
+async function loadFile(f) {
+  if (!f) return;
+  const gen = ++loadGen; lastFile = f;
+  try {
+    if (f.type.startsWith('video/')) {
+      const r = await decodeVideo(f, gen);
+      if (r && gen === loadGen) setSource(r.frames, r.w, r.h, 'video');
+      return;
+    }
+    if (!f.type.startsWith('image/')) return setInfo('Это не картинка и не видео');
+    if (f.type === 'image/gif') {
+      setInfo('Читаю кадры GIF…');
+      const r = decodeGIF(await f.arrayBuffer());
+      if (gen === loadGen && r.frames.length) return setSource(r.frames, r.w, r.h, 'gif');
+    } else if (/webp|png/.test(f.type) && 'ImageDecoder' in window) {     // анимированные WebP/APNG
+      const r = await decodeFrames(f);
+      if (gen === loadGen && r.frames.length > 1) return setSource(r.frames, r.w, r.h, 'gif');
+    }
+  } catch (e) { console.warn(e); setInfo(String(e.message || e)); if (f.type.startsWith('video/')) return; }
+  const im = new Image();
+  im.onload = () => { if (gen === loadGen) setSource([{ img: im, dur: 100 }], im.width, im.height, 'image'); };
+  im.onerror = () => setInfo('Не получилось открыть файл');
+  im.src = URL.createObjectURL(f);
+}
+
+async function decodeFrames(f) {
+  const dec = new ImageDecoder({ data: await f.arrayBuffer(), type: f.type });
+  await dec.tracks.ready; await dec.completed;
+  const count = Math.min(dec.tracks.selectedTrack.frameCount, 300), frames = [];
+  let w = 1, h = 1;
+  for (let i = 0; i < count; i++) {
+    const { image } = await dec.decode({ frameIndex: i });
+    w = image.displayWidth; h = image.displayHeight;
+    let dur = (image.duration || 0) / 1000; if (dur < 20) dur = 100;
+    frames.push({ img: snapshot(image, w, h), dur });
+    image.close();
+  }
+  dec.close();
+  return { frames, w, h };
+}
+
+// ---------- свой разбор GIF на кадры (работает в любом браузере) ----------
+function lzwDecode(minSize, data, npix) {
+  const out = new Uint8Array(npix);
+  const clear = 1 << minSize, eoi = clear + 1;
+  const prefix = new Int16Array(4096), suffix = new Uint8Array(4096), stack = new Uint8Array(4097);
+  for (let i = 0; i < clear; i++) suffix[i] = i;
+  let size = minSize + 1, next = eoi + 1, acc = 0, bits = 0, dp = 0, op = 0, old = -1, first = 0;
+  while (op < npix) {
+    while (bits < size) { if (dp >= data.length) return out; acc |= data[dp++] << bits; bits += 8; }
+    const code = acc & ((1 << size) - 1); acc >>>= size; bits -= size;
+    if (code === clear) { size = minSize + 1; next = eoi + 1; old = -1; continue; }
+    if (code === eoi) break;
+    if (old === -1) { out[op++] = suffix[code]; old = first = code; continue; }
+    let c = code, sp = 0;
+    if (code >= next) { stack[sp++] = first; c = old; }
+    while (c > eoi) { stack[sp++] = suffix[c]; c = prefix[c]; }
+    stack[sp++] = c; first = c;
+    while (sp && op < npix) out[op++] = stack[--sp];
+    if (next < 4096) { prefix[next] = old; suffix[next] = first; next++; if (next === (1 << size) && size < 12) size++; }
+    old = code;
+  }
+  return out;
+}
+
+function decodeGIF(buf) {
+  const d = new Uint8Array(buf); let p = 6;
+  if (d[0] !== 0x47 || d[1] !== 0x49 || d[2] !== 0x46) throw new Error('Файл не похож на GIF');
+  const u16 = () => { const v = d[p] | (d[p + 1] << 8); p += 2; return v; };
+  const W = u16(), H = u16(), pk = d[p++]; p += 2;
+  let gct = null;
+  if (pk & 0x80) { const n = 3 * (1 << ((pk & 7) + 1)); gct = d.subarray(p, p + n); p += n; }
+  let comp = new Uint8ClampedArray(W * H * 4);          // «склеенная» картинка с учётом прошлых кадров
+  let delay = 100, disposal = 0, trans = -1;
+  const frames = [];
+  while (p < d.length) {
+    const b = d[p++];
+    if (b === 0x21) {
+      const label = d[p++];
+      if (label === 0xF9) { p++; const f = d[p++]; disposal = (f >> 2) & 7; delay = u16() * 10; const t = d[p++]; trans = (f & 1) ? t : -1; }
+      while (d[p]) p += d[p] + 1;
+      p++;
+    } else if (b === 0x2C) {
+      const x = u16(), y = u16(), w = u16(), h = u16(), ipk = d[p++];
+      let ct = gct;
+      if (ipk & 0x80) { const n = 3 * (1 << ((ipk & 7) + 1)); ct = d.subarray(p, p + n); p += n; }
+      const minSize = d[p++], parts = []; let len = 0;
+      while (d[p]) { parts.push(d.subarray(p + 1, p + 1 + d[p])); len += d[p]; p += d[p] + 1; }
+      p++;
+      const data = new Uint8Array(len); let o = 0; for (const s of parts) { data.set(s, o); o += s.length; }
+      const px = lzwDecode(minSize, data, w * h);
+      const rows = [];
+      if (ipk & 0x40) { for (const [s, st] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let r = s; r < h; r += st) rows.push(r); }
+      else for (let r = 0; r < h; r++) rows.push(r);
+      const backup = disposal === 3 ? comp.slice() : null;
+      for (let i = 0; i < h; i++) {
+        const yy = y + rows[i]; if (yy >= H) continue;
+        for (let xx = 0; xx < w; xx++) {
+          const idx = px[i * w + xx]; if (idx === trans || x + xx >= W) continue;
+          const q = (yy * W + x + xx) * 4;
+          comp[q] = ct[idx * 3]; comp[q + 1] = ct[idx * 3 + 1]; comp[q + 2] = ct[idx * 3 + 2]; comp[q + 3] = 255;
+        }
+      }
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      c.getContext('2d').putImageData(new ImageData(comp.slice(), W, H), 0, 0);
+      frames.push({ img: snapshot(c, W, H), dur: delay < 20 ? 100 : delay });
+      if (disposal === 2) for (let yy = y; yy < Math.min(H, y + h); yy++) comp.fill(0, (yy * W + x) * 4, (yy * W + Math.min(W, x + w)) * 4);
+      else if (disposal === 3) comp = backup;
+      delay = 100; disposal = 0; trans = -1;
+      if (frames.length >= 300) break;
+    } else break;
+  }
+  return { frames, w: W, h: H };
+}
+
+// ---------- сохранение GIF ----------
+// Палитра: для одного цвета — 256 оттенков между фоном и цветом символов, иначе — цветовой куб 6×7×6
+function gifPalette(s) {
+  const p = new Uint8Array(768), bg = hex(s.bgColor);
+  if (s.colorMode === 'solid') {
+    const fg = hex(s.c1);
+    for (let i = 0; i < 256; i++) for (let k = 0; k < 3; k++) p[i * 3 + k] = Math.round(bg[k] + (fg[k] - bg[k]) * i / 255);
+    const dv = [fg[0] - bg[0], fg[1] - bg[1], fg[2] - bg[2]], len2 = dv[0] ** 2 + dv[1] ** 2 + dv[2] ** 2 || 1;
+    return { p, map: (r, g, b) => Math.round(clamp01(((r - bg[0]) * dv[0] + (g - bg[1]) * dv[1] + (b - bg[2]) * dv[2]) / len2) * 255) };
+  }
+  for (let i = 0; i < 252; i++) { p[i*3] = Math.floor(i / 42) * 51; p[i*3+1] = Math.round((Math.floor(i / 6) % 7) * 42.5); p[i*3+2] = (i % 6) * 51; }
+  p.set(bg, 252 * 3);
+  return { p, map: (r, g, b) => (r === bg[0] && g === bg[1] && b === bg[2]) ? 252
+    : Math.round(r / 51) * 42 + Math.round(g / 42.5) * 6 + Math.round(b / 51) };
+}
+
+class ByteOut {
+  constructor() { this.b = new Uint8Array(1 << 22); this.n = 0; }
+  byte(v) { if (this.n >= this.b.length) { const nb = new Uint8Array(this.b.length * 2); nb.set(this.b); this.b = nb; } this.b[this.n++] = v; }
+  u16(v) { this.byte(v & 255); this.byte((v >> 8) & 255); }
+  str(s) { for (const c of s) this.byte(c.charCodeAt(0)); }
+  bytes(a) { for (let i = 0; i < a.length; i++) this.byte(a[i]); }
+  result() { return this.b.subarray(0, this.n); }
+}
+
+const lzwDict = new Int32Array(4096 * 256), lzwStamp = new Int32Array(4096 * 256);
+let lzwGen = 0;
+function writeLZW(o, px) {
+  const CLEAR = 256, EOI = 257;
+  let size = 9, next = 258, acc = 0, bits = 0;
+  const block = new Uint8Array(255); let bl = 0;
+  const flushBlock = () => { if (bl) { o.byte(bl); for (let i = 0; i < bl; i++) o.byte(block[i]); bl = 0; } };
+  const emit = code => {
+    acc |= code << bits; bits += size;
+    while (bits >= 8) { block[bl++] = acc & 255; if (bl === 255) flushBlock(); acc >>>= 8; bits -= 8; }
+  };
+  o.byte(8);
+  lzwGen++; emit(CLEAR);
+  let prefix = px[0];
+  for (let i = 1; i < px.length; i++) {
+    const k = px[i], key = prefix * 256 + k;
+    if (lzwStamp[key] === lzwGen) { prefix = lzwDict[key]; continue; }
+    emit(prefix);
+    if (next === 4096) { emit(CLEAR); lzwGen++; next = 258; size = 9; }
+    else { if (next >= (1 << size)) size++; lzwDict[key] = next++; lzwStamp[key] = lzwGen; }
+    prefix = k;
+  }
+  emit(prefix); emit(EOI);
+  if (bits > 0) { block[bl++] = acc & 255; if (bl === 255) flushBlock(); }
+  flushBlock(); o.byte(0);
+}
+
+$('saveGif').onclick = async () => {
+  const btn = $('saveGif'); btn.disabled = true;
+  cancelAnimationFrame(animId);
+  const s = grid.s, scale = +$('gifScale').value;
+  const w = Math.round(grid.W * scale), h = Math.round(grid.H * scale);
+  const g = document.createElement('canvas'); g.width = w; g.height = h;
+  const gctx = g.getContext('2d', { willReadFrequently: true });
+  gctx.imageSmoothingQuality = 'high';
+  const pal = gifPalette(s);
+
+  const o = new ByteOut();
+  o.str('GIF89a'); o.u16(w); o.u16(h); o.byte(0xF7); o.byte(0); o.byte(0);
+  o.bytes(pal.p);
+  o.byte(0x21); o.byte(0xFF); o.byte(11); o.str('NETSCAPE2.0'); o.byte(3); o.byte(1); o.u16(0); o.byte(0);   // бесконечный повтор
+
+  // GIF/видео → те же кадры и скорость; картинка с эффектом → N кадров на цикл; без эффекта → 1 кадр
+  const N = +$('gifFrames').value, L = s.loopMs;
+  const plan = isAnimated() ? grid.frames.map(f => ({ t: f.start, d: f.dur }))
+    : s.effect === 'none' ? [{ t: 0, d: 1000 }]
+    : Array.from({ length: N }, (_, i) => ({ t: i * L / N, d: L / N }));
+
+  for (let f = 0; f < plan.length; f++) {
+    btn.textContent = `⏳ GIF: кадр ${f + 1} из ${plan.length}…`;
+    draw(plan[f].t);
+    gctx.drawImage(out, 0, 0, w, h);
+    const data = gctx.getImageData(0, 0, w, h).data, px = new Uint8Array(w * h);
+    for (let i = 0; i < px.length; i++) px[i] = pal.map(data[i*4], data[i*4+1], data[i*4+2]);
+    o.byte(0x21); o.byte(0xF9); o.byte(4); o.byte(0); o.u16(Math.max(2, Math.round(plan[f].d / 10))); o.byte(0); o.byte(0);
+    o.byte(0x2C); o.u16(0); o.u16(0); o.u16(w); o.u16(h); o.byte(0);
+    writeLZW(o, px);
+    await new Promise(r => setTimeout(r, 0));
+  }
+  o.byte(0x3B);
+
+  const blob = new Blob([o.result()], { type: 'image/gif' });
+  download(blob, 'ascii-oboi.gif');
+  btn.textContent = `✅ GIF готов (${(blob.size / 1048576).toFixed(1)} МБ) — ещё раз`;
+  btn.disabled = false;
+  window.__lastGif = blob;
+  restart();
+};
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.download = name; a.href = URL.createObjectURL(blob); a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+$('savePng').onclick = () => out.toBlob(b => download(b, 'ascii-oboi.png'), 'image/png');
+
+$('saveVid').onclick = () => {
+  if (!isMoving()) { $('effect').value = 'flicker'; restyle(); }
+  const btn = $('saveVid'); btn.disabled = true;
+  const L = cycleLen(), len = Math.ceil(6000 / L) * L;          // целое число циклов — видео тоже зацикливается
+  const type = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
+  const rec = new MediaRecorder(out.captureStream(30), { mimeType: type, videoBitsPerSecond: 12e6 });
+  const chunks = [];
+  rec.ondataavailable = e => chunks.push(e.data);
+  rec.onstop = () => {
+    download(new Blob(chunks, { type: 'video/webm' }), 'ascii-oboi.webm');
+    btn.disabled = false; btn.textContent = '🎬 Записать видео (WebM)';
+  };
+  cancelAnimationFrame(animId); loop();                          // запись с начала цикла
+  rec.start();
+  const t0 = performance.now();
+  const tick = setInterval(() => { btn.textContent = `⏺ Запись… ${((len - (performance.now() - t0)) / 1000).toFixed(0)} сек`; }, 250);
+  setTimeout(() => { clearInterval(tick); rec.stop(); }, len);
+};
+
+// ---------- готовые стили ----------
+const PRESETS = {
+  classic:  { colorMode: 'solid', c1: '#ffffff', bgColor: '#000000', glow: 45, font: 'courier' },
+  matrix:   { colorMode: 'solid', c1: '#3dff6e', bgColor: '#000a03', glow: 60, effect: 'matrix', font: 'consolas' },
+  neon:     { colorMode: 'gradient', c1: '#00e5ff', c2: '#ff2bd6', bgColor: '#05010a', glow: 75 },
+  retro:    { colorMode: 'solid', c1: '#ffb000', bgColor: '#0f0800', glow: 55, font: 'vt323' },
+  sunset:   { colorMode: 'gradient', c1: '#ffd23f', c2: '#ff2e63', bgColor: '#0b0208', glow: 55 },
+  ice:      { colorMode: 'gradient', c1: '#ffffff', c2: '#4cc9ff', bgColor: '#00040a', glow: 55 },
+  rainbow:  { colorMode: 'rainbow', bgColor: '#000000', glow: 50 },
+  blood:    { colorMode: 'solid', c1: '#ff1f3d', bgColor: '#070000', glow: 70, font: 'jetbrains' },
+  original: { colorMode: 'image', bgColor: '#000000', glow: 35 },
+};
+document.querySelectorAll('[data-preset]').forEach(b => b.onclick = async () => {
+  const p = PRESETS[b.dataset.preset];
+  for (const k of ['colorMode', 'c1', 'c2', 'bgColor', 'glow', 'effect', 'font']) if (p[k] !== undefined) $(k).value = p[k];
+  refreshLabels();
+  await fontReady(); build();
+});
+
+// ---------- элементы управления ----------
+function restyle() { if (!grid) return; grid.s = settings(); restart(); }   // только цвета/эффекты — без пересчёта сетки
+let buildTimer = 0;
+function scheduleBuild() { clearTimeout(buildTimer); buildTimer = setTimeout(build, rawFrames.length > 1 ? 150 : 0); }
+let prepTimer = 0;
+function schedulePrepare() { clearTimeout(prepTimer); prepTimer = setTimeout(prepare, 200); }
+async function fontReady() {
+  const s = settings();
+  try { await document.fonts.load(`${s.bold ? 'bold ' : ''}40px ${s.fontCss}`, 'M@#'); } catch (e) {}
+}
+
+const LABELS = ['zoom', 'offY', 'bgTol', 'cols', 'bright', 'contrast', 'cut', 'glow', 'loopSec', 'maxSec', 'capSize', 'gifFrames'];
+function refreshLabels() { for (const id of LABELS) $(id + 'V').textContent = $(id).value; }
+for (const id of LABELS) $(id).addEventListener('input', refreshLabels);
+
+for (const id of ['format', 'zoom', 'offY', 'cols', 'charset', 'bright', 'contrast', 'cut', 'invert']) $(id).addEventListener('input', scheduleBuild);
+for (const id of ['colorMode', 'c1', 'c2', 'bgColor', 'glow', 'effect', 'loopSec', 'caption', 'capPos', 'capSize']) $(id).addEventListener('input', restyle);
+for (const id of ['bgMode', 'bgTol']) $(id).addEventListener('input', schedulePrepare);
+for (const id of ['font', 'bold']) $(id).addEventListener('input', async () => { await fontReady(); build(); });
+for (const id of ['fps', 'maxSec']) $(id).addEventListener('change', () => { if (srcKind === 'video' && lastFile) loadFile(lastFile); });
+$('charsetSel').onchange = () => { if ($('charsetSel').value !== 'custom') $('charset').value = $('charsetSel').value; else $('charset').focus(); build(); };
+
+$('file').onchange = e => loadFile(e.target.files[0]);
+addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('dragging'); });
+addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
+addEventListener('drop', e => { e.preventDefault(); document.body.classList.remove('dragging'); loadFile(e.dataTransfer.files[0]); });
+addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.kind === 'file') return loadFile(it.getAsFile()); });
+refreshLabels();
+$('bgTolBox').style.display = 'none';
+
+// ---------- демо-картинка, чтобы сразу было видно эффект ----------
+(function demo() {
+  const c = document.createElement('canvas'); c.width = 600; c.height = 800;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(300, 330, 20, 300, 380, 300);
+  grad.addColorStop(0, '#fff'); grad.addColorStop(1, '#222');
+  g.fillStyle = '#000'; g.fillRect(0, 0, 600, 800);
+  g.fillStyle = grad;
+  g.beginPath(); g.moveTo(140, 120); g.lineTo(220, 260); g.lineTo(380, 260); g.lineTo(460, 120); g.lineTo(480, 400);
+  g.ellipse(300, 420, 190, 170, 0, 0, Math.PI); g.lineTo(120, 400); g.closePath(); g.fill();
+  g.fillStyle = '#000';
+  g.beginPath(); g.ellipse(235, 380, 28, 36, 0, 0, 7); g.ellipse(365, 380, 28, 36, 0, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(245, 368, 9, 0, 7); g.arc(375, 368, 9, 0, 7); g.fill();
+  g.fillStyle = '#555'; g.beginPath(); g.moveTo(290, 430); g.lineTo(310, 430); g.lineTo(300, 442); g.fill();
+  setSource([{ img: c, dur: 100 }], 600, 800, 'image');
+  setInfo('Демо-котик. Загрузи свою картинку, GIF или видео.');
+})();
+</script>
+</body>
+</html>
